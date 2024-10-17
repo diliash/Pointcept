@@ -8,30 +8,29 @@ Please cite our work if the code is helpful to you.
 import os
 import sys
 import weakref
+from functools import partial
+
 import torch
 import torch.nn as nn
 import torch.utils.data
-from functools import partial
 
 if sys.version_info >= (3, 10):
     from collections.abc import Iterator
 else:
     from collections import Iterator
+
+import pointcept.utils.comm as comm
+import wandb
+from pointcept.datasets import build_dataset, collate_fn, point_collate_fn
+from pointcept.models import build_model
+from pointcept.utils.events import EventStorage
+from pointcept.utils.logger import get_root_logger
+from pointcept.utils.optimizer import build_optimizer
+from pointcept.utils.scheduler import build_scheduler
 from tensorboardX import SummaryWriter
 
 from .defaults import create_ddp_model, worker_init_fn
 from .hooks import HookBase, build_hooks
-import pointcept.utils.comm as comm
-from pointcept.datasets import build_dataset, point_collate_fn, collate_fn
-from pointcept.models import build_model
-from pointcept.utils.logger import get_root_logger
-from pointcept.utils.optimizer import build_optimizer
-from pointcept.utils.scheduler import build_scheduler
-from pointcept.utils.events import EventStorage, ExceptionWriter
-from pointcept.utils.registry import Registry
-
-
-TRAINERS = Registry("trainers")
 
 
 class TrainerBase:
@@ -111,15 +110,17 @@ class TrainerBase:
             h.after_train()
         if comm.is_main_process():
             self.writer.close()
+        wandb.finish()
 
 
-@TRAINERS.register_module("DefaultTrainer")
 class Trainer(TrainerBase):
     def __init__(self, cfg):
         super(Trainer, self).__init__()
+        wandb.login()
+        self.run = wandb.init(project="Swin3D-PointGroup", config=cfg, sync_tensorboard=True)
         self.epoch = 0
         self.start_epoch = 0
-        self.max_epoch = cfg.eval_epoch
+        self.max_epoch = cfg.epoch
         self.best_metric_value = -torch.inf
         self.logger = get_root_logger(
             log_file=os.path.join(cfg.save_path, "train.log"),
@@ -144,9 +145,13 @@ class Trainer(TrainerBase):
         self.logger.info("=> Building hooks ...")
         self.register_hooks(self.cfg.hooks)
 
+        self.comm_info["current_metric_value"] = -torch.inf
+        self.comm_info["current_metric_name"] = ""
+
     def train(self):
         with EventStorage() as self.storage, ExceptionWriter():
             # => before train
+            #import pdb; pdb.set_trace()
             self.before_train()
             self.logger.info(">>>>>>>>>>>>>>>> Start Training >>>>>>>>>>>>>>>>")
             for self.epoch in range(self.start_epoch, self.max_epoch):
@@ -181,6 +186,7 @@ class Trainer(TrainerBase):
         with torch.cuda.amp.autocast(enabled=self.cfg.enable_amp):
             output_dict = self.model(input_dict)
             loss = output_dict["loss"]
+        wandb.log(output_dict)
         self.optimizer.zero_grad()
         if self.cfg.enable_amp:
             self.scaler.scale(loss).backward()
@@ -299,20 +305,3 @@ class Trainer(TrainerBase):
     def build_scaler(self):
         scaler = torch.cuda.amp.GradScaler() if self.cfg.enable_amp else None
         return scaler
-
-
-@TRAINERS.register_module("MultiDatasetTrainer")
-class MultiDatasetTrainer(Trainer):
-    def build_train_loader(self):
-        from pointcept.datasets import MultiDatasetDataloader
-
-        train_data = build_dataset(self.cfg.data.train)
-        train_loader = MultiDatasetDataloader(
-            train_data,
-            self.cfg.batch_size_per_gpu,
-            self.cfg.num_worker_per_gpu,
-            self.cfg.mix_prob,
-            self.cfg.seed,
-        )
-        self.comm_info["iter_per_epoch"] = len(train_loader)
-        return train_loader

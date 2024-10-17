@@ -12,7 +12,7 @@ import torch.nn as nn
 import einops
 import pointops
 
-from pointcept.models.builder import MODELS
+from ..builder import MODELS
 from .utils import LayerNorm1d
 
 

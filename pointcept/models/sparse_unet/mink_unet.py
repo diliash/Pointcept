@@ -13,9 +13,11 @@ import torch.nn as nn
 try:
     import MinkowskiEngine as ME
 except ImportError:
-    ME = None
+    import warnings
 
-from pointcept.models.builder import MODELS
+    warnings.warn("Please follow `README.md` to install MinkowskiEngine.`")
+
+from ..builder import MODELS
 
 
 def offset2batch(offset):
@@ -167,7 +169,6 @@ class MinkUNetBase(nn.Module):
 
     def __init__(self, in_channels, out_channels, dimension=3):
         super().__init__()
-        assert ME is not None, "Please follow `README.md` to install MinkowskiEngine.`"
         self.D = dimension
         assert self.BLOCK is not None
         # Output of the first conv concated to conv6
@@ -289,13 +290,15 @@ class MinkUNetBase(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, data_dict):
-        grid_coord = data_dict["grid_coord"]
+        discrete_coord = data_dict["discrete_coord"]
         feat = data_dict["feat"]
         offset = data_dict["offset"]
         batch = offset2batch(offset)
         in_field = ME.TensorField(
             feat,
-            coordinates=torch.cat([batch.unsqueeze(-1).int(), grid_coord.int()], dim=1),
+            coordinates=torch.cat(
+                [batch.unsqueeze(-1).int(), discrete_coord.int()], dim=1
+            ),
             quantization_mode=ME.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE,
             minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
             device=feat.device,

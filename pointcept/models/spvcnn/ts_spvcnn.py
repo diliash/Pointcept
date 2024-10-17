@@ -15,11 +15,12 @@ try:
     from torchsparse.nn.utils import get_kernel_offsets
     from torchsparse import PointTensor, SparseTensor
 except ImportError:
-    torchsparse = None
+    import warnings
 
+    warnings.warn("Please follow `README.md` to install torchsparse.`")
 
-from pointcept.models.utils import offset2batch
-from pointcept.models.builder import MODELS
+from ..utils import offset2batch
+from ..builder import MODELS
 
 
 def initial_voxelize(z):
@@ -187,9 +188,6 @@ class SPVCNN(nn.Module):
     ):  # not implement
         super().__init__()
 
-        assert (
-            torchsparse is not None
-        ), "Please follow `README.md` to install torchsparse.`"
         assert len(layers) % 2 == 0
         assert len(layers) == len(channels)
         self.in_channels = in_channels
@@ -384,7 +382,7 @@ class SPVCNN(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, data_dict):
-        grid_coord = data_dict["grid_coord"]
+        discrete_coord = data_dict["discrete_coord"]
         feat = data_dict["feat"]
         offset = data_dict["offset"]
         batch = offset2batch(offset)
@@ -393,7 +391,7 @@ class SPVCNN(nn.Module):
         z = PointTensor(
             feat,
             torch.cat(
-                [grid_coord.float(), batch.unsqueeze(-1).float()], dim=1
+                [discrete_coord.float(), batch.unsqueeze(-1).float()], dim=1
             ).contiguous(),
         )
         x0 = initial_voxelize(z)

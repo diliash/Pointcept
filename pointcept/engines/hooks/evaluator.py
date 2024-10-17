@@ -17,6 +17,8 @@ from pointcept.utils.misc import intersection_and_union_gpu
 from .default import HookBase
 from .builder import HOOKS
 
+import os
+
 
 @HOOKS.register_module()
 class ClsEvaluator(HookBase):
@@ -548,6 +550,10 @@ class InsSegEvaluator(HookBase):
                 )
             )
 
+            if (self.trainer.epoch + 1) % 3 == 0:
+                os.makedirs(f"{self.trainer.cfg.save_path}/preds/{self.trainer.epoch + 1}", exist_ok=True)
+                torch.save(output_dict, f"{self.trainer.cfg.save_path}/preds/{self.trainer.epoch + 1}/{self.trainer.val_loader.dataset.get_data_name(i)}.pth")
+
         loss_avg = self.trainer.storage.history("val_loss").avg
         comm.synchronize()
         scenes_sync = comm.gather(scenes, dst=0)
@@ -576,6 +582,9 @@ class InsSegEvaluator(HookBase):
             self.trainer.writer.add_scalar("val/mAP", all_ap, current_epoch)
             self.trainer.writer.add_scalar("val/AP50", all_ap_50, current_epoch)
             self.trainer.writer.add_scalar("val/AP25", all_ap_25, current_epoch)
+        
+        
+
         self.trainer.logger.info("<<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<")
         self.trainer.comm_info["current_metric_value"] = all_ap_50  # save for saver
         self.trainer.comm_info["current_metric_name"] = "AP50"  # save for saver

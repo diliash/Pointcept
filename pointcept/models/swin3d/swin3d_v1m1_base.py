@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
-import MinkowskiEngine as ME
-from MinkowskiEngine import SparseTensor
+from pointcept.models.builder import MODELS
+from pointcept.models.utils import batch2offset, offset2batch
 from timm.models.layers import trunc_normal_
 
+import MinkowskiEngine as ME
+from MinkowskiEngine import SparseTensor
+
 from .mink_layers import MinkConvBNRelu, MinkResBlock
-from .swin3d_layers import GridDownsample, GridKNNDownsample, BasicLayer, Upsample
-from pointcept.models.builder import MODELS
-from pointcept.models.utils import offset2batch, batch2offset
+from .swin3d_layers import BasicLayer, GridDownsample, GridKNNDownsample, Upsample
 
 
 @MODELS.register_module("Swin3D-v1m1")
@@ -107,16 +108,13 @@ class Swin3DUNet(nn.Module):
 
         self.classifier = nn.Sequential(
             nn.Linear(channels[0], channels[0]),
-            nn.BatchNorm1d(channels[0]),
-            nn.ReLU(inplace=True),
-            nn.Linear(channels[0], num_classes),
         )
         self.num_classes = num_classes
         self.base_grid_size = base_grid_size
         self.init_weights()
 
     def forward(self, data_dict):
-        grid_coord = data_dict["grid_coord"]
+        discrete_coord = data_dict["discrete_coord"]
         feat = data_dict["feat"]
         coord_feat = data_dict["coord_feat"]
         coord = data_dict["coord"]
@@ -132,11 +130,14 @@ class Swin3DUNet(nn.Module):
                 ],
                 dim=1,
             ),
-            coordinates=torch.cat([batch.unsqueeze(-1).int(), grid_coord.int()], dim=1),
+            coordinates=torch.cat(
+                [batch.unsqueeze(-1).int(), discrete_coord.int()], dim=1
+            ),
             quantization_mode=ME.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE,
             minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
             device=feat.device,
         )
+
 
         sp = in_field.sparse()
         coords_sp = SparseTensor(

@@ -15,17 +15,16 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 import argparse
-import numpy as np
-import tensorflow.compat.v1 as tf
-from pathlib import Path
-from waymo_open_dataset.utils import frame_utils
-from waymo_open_dataset.utils import transform_utils
-from waymo_open_dataset.utils import range_image_utils
-from waymo_open_dataset import dataset_pb2 as open_dataset
 import glob
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
+from pathlib import Path
+
+import numpy as np
+import tensorflow.compat.v1 as tf
+from waymo_open_dataset import dataset_pb2 as open_dataset
+from waymo_open_dataset.utils import frame_utils, range_image_utils, transform_utils
 
 
 def create_lidar(frame):

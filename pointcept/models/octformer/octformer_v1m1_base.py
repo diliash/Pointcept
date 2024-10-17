@@ -7,28 +7,16 @@ Author: Xiaoyang Wu (xiaoyang.wu.cs@gmail.com)
 Please cite our work if the code is helpful to you.
 """
 
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
+
+import dwconv
+import ocnn
 import torch
 import torch.nn as nn
-from torch.utils.checkpoint import checkpoint
-
-try:
-    import ocnn
-    from ocnn.octree import Octree, Points
-except ImportError:
-    from pointcept.utils.misc import DummyClass
-
-    ocnn = None
-    Octree = DummyClass
-    Points = DummyClass
-
-try:
-    import dwconv
-except ImportError:
-    dwconv = None
-
+from ocnn.octree import Octree, Points
 from pointcept.models.builder import MODELS
 from pointcept.models.utils import offset2batch
+from torch.utils.checkpoint import checkpoint
 
 
 class OctreeT(Octree):
@@ -525,9 +513,6 @@ class OctFormer(torch.nn.Module):
         octree_full_depth=2,
     ):
         super().__init__()
-        assert ocnn is not None, "Please follow `README.md` to install ocnn.`"
-        assert dwconv is not None, "Please follow `README.md` to install dwconv.`"
-
         self.patch_size = patch_size
         self.dilation = dilation
         self.nempty = nempty

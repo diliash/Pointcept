@@ -5,27 +5,24 @@ Author: Xiaoyang Wu (xiaoyang.wu.cs@gmail.com), Chengyao Wang
 Please cite our work if the code is helpful to you.
 """
 
+import copy
 from functools import partial
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pointgroup_ops import ballquery_batch_p, bfs_cluster
 
-try:
-    from pointgroup_ops import ballquery_batch_p, bfs_cluster
-except ImportError:
-    ballquery_batch_p, bfs_cluster = None, None
-
-from pointcept.models.utils import offset2batch, batch2offset
-
-from pointcept.models.builder import MODELS, build_model
+from ..builder import MODELS, build_model
+from ..utils import batch2offset, offset2batch
 
 
 @MODELS.register_module("PG-v1m1")
 class PointGroup(nn.Module):
     def __init__(
         self,
-        backbone,
-        backbone_out_channels=64,
+        backbone=None,
+        backbone_out_channels=48,
         semantic_num_classes=20,
         semantic_ignore_index=-1,
         segment_ignore_index=(-1, 0, 1),
@@ -35,8 +32,19 @@ class PointGroup(nn.Module):
         cluster_propose_points=100,
         cluster_min_points=50,
         voxel_size=0.02,
+        build=True,
     ):
         super().__init__()
+        if backbone is None:
+            backbone = dict(
+                type="SpUNet-v1m1",
+                in_channels=6,
+                num_classes=0,
+                channels=(32, 64, 128, 256, 256, 128, 96, 96),
+                layers=(2, 3, 4, 6, 2, 2, 2, 2),
+            )
+        else:
+            backbone.num_classes = 0
         norm_fn = partial(nn.BatchNorm1d, eps=1e-3, momentum=0.01)
         self.semantic_num_classes = semantic_num_classes
         self.segment_ignore_index = segment_ignore_index
@@ -47,7 +55,10 @@ class PointGroup(nn.Module):
         self.cluster_propose_points = cluster_propose_points
         self.cluster_min_points = cluster_min_points
         self.voxel_size = voxel_size
-        self.backbone = build_model(backbone)
+        if build:
+            self.backbone = build_model(backbone)
+        else:
+            self.backbone = backbone
         self.bias_head = nn.Sequential(
             nn.Linear(backbone_out_channels, backbone_out_channels),
             norm_fn(backbone_out_channels),
@@ -61,9 +72,10 @@ class PointGroup(nn.Module):
         coord = data_dict["coord"]
         segment = data_dict["segment"]
         instance = data_dict["instance"]
-        instance_centroid = data_dict["instance_centroid"]
+        instance_center = data_dict["instance_center"]
         offset = data_dict["offset"]
-
+        
+        #print(data_dict)
         feat = self.backbone(data_dict)
         bias_pred = self.bias_head(feat)
         logit_pred = self.seg_head(feat)
@@ -72,7 +84,7 @@ class PointGroup(nn.Module):
         seg_loss = self.ce_criteria(logit_pred, segment)
 
         mask = (instance != self.instance_ignore_index).float()
-        bias_gt = instance_centroid - coord
+        bias_gt = instance_center - coord
         bias_dist = torch.sum(torch.abs(bias_pred - bias_gt), dim=-1)
         bias_l1_loss = torch.sum(bias_dist * mask) / (torch.sum(mask) + 1e-8)
 

@@ -6,9 +6,10 @@ Please cite our work if the code is helpful to you.
 """
 
 import os
-import numpy as np
-from collections.abc import Sequence
 import pickle
+from collections.abc import Sequence
+
+import numpy as np
 
 from .builder import DATASETS
 from .defaults import DefaultDataset
@@ -16,7 +17,17 @@ from .defaults import DefaultDataset
 
 @DATASETS.register_module()
 class NuScenesDataset(DefaultDataset):
-    def __init__(self, sweeps=10, ignore_index=-1, **kwargs):
+    def __init__(
+        self,
+        split="train",
+        data_root="data/dataset",
+        sweeps=10,
+        transform=None,
+        test_mode=False,
+        test_cfg=None,
+        loop=1,
+        ignore_index=-1,
+    ):
         self.sweeps = sweeps
         self.ignore_index = ignore_index
         self.learning_map = self.get_learning_map(ignore_index)
@@ -60,7 +71,9 @@ class NuScenesDataset(DefaultDataset):
             [-1, 5]
         )
         coord = points[:, :3]
-        strength = points[:, 3].reshape([-1, 1]) / 255  # scale strength to [0, 1]
+        strength = (
+            points[:, 3].reshape([-1, 1]) / 127.5 - 1
+        )  # scale strength to [-1, 1]
 
         if "gt_segment_path" in data.keys():
             gt_segment_path = os.path.join(

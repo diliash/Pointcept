@@ -5,27 +5,30 @@ Author: Xiaoyang Wu (xiaoyang.wu.cs@gmail.com)
 Please cite our work if the code is helpful to you.
 """
 
-import sys
 import glob
 import os
 import shutil
+import sys
 import time
+from collections import OrderedDict
+
 import torch
 import torch.utils.data
-from collections import OrderedDict
 
 if sys.version_info >= (3, 10):
     from collections.abc import Sequence
 else:
     from collections import Sequence
-from pointcept.utils.timer import Timer
-from pointcept.utils.comm import is_main_process, synchronize, get_world_size
-from pointcept.utils.cache import shared_dict
-import pointcept.utils.comm as comm
-from pointcept.engines.test import TESTERS
 
-from .default import HookBase
+from pointcept.datasets import build_dataset
+from pointcept.datasets.utils import collate_fn
+from pointcept.engines.test import TEST
+from pointcept.utils.cache import shared_dict
+from pointcept.utils.comm import get_world_size, is_main_process, synchronize
+from pointcept.utils.timer import Timer
+
 from .builder import HOOKS
+from .default import HookBase
 
 
 @HOOKS.register_module()
@@ -222,6 +225,7 @@ class CheckpointLoader(HookBase):
                 f"Loading layer weights with keyword: {self.keywords}, "
                 f"replace keyword with: {self.replacement}"
             )
+<<<<<<< HEAD
             weight = OrderedDict()
             for key, value in checkpoint["state_dict"].items():
                 if not key.startswith("module."):
@@ -232,6 +236,15 @@ class CheckpointLoader(HookBase):
                 if comm.get_world_size() == 1:
                     key = key[7:]  # module.xxx.xxx -> xxx.xxx
                 weight[key] = value
+=======
+            weight = OrderedDict(
+                [
+                    (key.replace(self.keywords, self.replacement), value)
+                    for key, value in checkpoint["state_dict"].items()
+                    if self.keywords in key
+                ]
+            )
+>>>>>>> Initial S2O commit
             load_state_info = self.trainer.model.load_state_dict(
                 weight, strict=self.strict
             )
@@ -261,11 +274,27 @@ class PreciseEvaluator(HookBase):
         )
         torch.cuda.empty_cache()
         cfg = self.trainer.cfg
-        tester = TESTERS.build(
-            dict(type=cfg.test.type, cfg=cfg, model=self.trainer.model)
+        tester = TEST.build(cfg.test)
+        self.trainer.logger.info("=> Building test dataset & dataloader ...")
+        test_dataset = build_dataset(cfg.data.test)
+        if get_world_size() > 1:
+            test_sampler = torch.utils.data.distributed.DistributedSampler(test_dataset)
+        else:
+            test_sampler = None
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=cfg.batch_size_test_per_gpu,
+            shuffle=False,
+            num_workers=cfg.batch_size_test_per_gpu,
+            pin_memory=True,
+            sampler=test_sampler,
+            collate_fn=tester.collate_fn,
         )
+
+        model = self.trainer.model
         if self.test_last:
             self.trainer.logger.info("=> Testing on model_last ...")
+            cfg.test_epoch = cfg.eval_epoch
         else:
             self.trainer.logger.info("=> Testing on model_best ...")
             best_path = os.path.join(
@@ -273,8 +302,9 @@ class PreciseEvaluator(HookBase):
             )
             checkpoint = torch.load(best_path)
             state_dict = checkpoint["state_dict"]
-            tester.model.load_state_dict(state_dict, strict=True)
-        tester.test()
+            model.load_state_dict(state_dict, strict=True)
+            cfg.test_epoch = checkpoint["epoch"]
+        tester(cfg, test_loader, model)
 
 
 @HOOKS.register_module()
@@ -332,7 +362,7 @@ class RuntimeProfiler(HookBase):
 
     def before_train(self):
         self.trainer.logger.info("Profiling runtime ...")
-        from torch.profiler import profile, record_function, ProfilerActivity
+        from torch.profiler import ProfilerActivity, profile, record_function
 
         for i, input_dict in enumerate(self.trainer.train_loader):
             if i == self.warm_up + 1:
@@ -414,9 +444,9 @@ class RuntimeProfilerV2(HookBase):
     def before_train(self):
         self.trainer.logger.info("Profiling runtime ...")
         from torch.profiler import (
+            ProfilerActivity,
             profile,
             record_function,
-            ProfilerActivity,
             schedule,
             tensorboard_trace_handler,
         )
